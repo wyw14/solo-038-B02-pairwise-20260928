@@ -41,9 +41,14 @@ func (runtime *Runtime) Equipment() []map[string]any {
 	roll, generation, feedOwner, feedSpeed := runtime.unwind.Snapshot()
 	plate, plateGeneration, color, phases := runtime.press.Snapshot()
 	ready, folderSpeed, cutLength, fault, lots := runtime.folder.Snapshot()
+	circuits := map[string]string{}
+	for _, name := range runtime.ink.Colors() {
+		circuits[name] = string(runtime.ink.Get(name))
+	}
 	values := []map[string]any{
 		{"name": "unwind", "roll": roll, "generation": generation, "owner": feedOwner, "speed": feedSpeed},
 		{"name": "press", "plate": plate, "generation": plateGeneration, "color": color, "phases": phases},
+		{"name": "ink", "active_color": runtime.inkControl.Active(), "ready": runtime.inkControl.Ready(), "circuits": circuits},
 		{"name": "dryer", "state": runtime.dryerControlStatus()},
 		{"name": "folder", "ready": ready, "speed": folderSpeed, "cut_length": cutLength, "fault": fault, "lots": lots},
 	}

@@ -207,16 +207,22 @@ func (runtime *Runtime) switchInkOperation(withFault bool) error {
 		active = "cyan"
 	}
 	if withFault {
-		circuit := ink.NewCircuit(runtime.ink)
-		circuit.FailDrain(active, fmt.Errorf("drain isolation signal failed"))
-		runtime.RecordIncident("warning", "ink", "drain isolation signal failed")
+		// Inject into the coordinator's own circuit: a circuit built here would
+		// not be the one SwitchColor drives, so the fault would never fire.
+		runtime.inkControl.FailDrain(active, fmt.Errorf("drain isolation signal failed"))
+		runtime.RecordIncident("warning", "ink", "drain isolation signal failed for "+active)
 		return nil
 	}
 	next := "magenta"
 	if active == next {
 		next = "cyan"
 	}
-	if _, err := runtime.inkControl.SwitchColor(next); err != nil {
+	transition, err := runtime.inkControl.SwitchColor(next)
+	if err != nil {
+		// SwitchColor leaves active pointing at an open circuit (the old color
+		// is restored, or active is cleared when rollback also fails), so the
+		// press color must not advance either.
+		runtime.RecordIncident("error", "ink", err.Error())
 		return err
 	}
 	if err := runtime.press.SetColor(next); err != nil {
@@ -226,7 +232,13 @@ func (runtime *Runtime) switchInkOperation(withFault bool) error {
 	if len(colors) < 2 || !ink.ActiveCircuitReady(runtime.ink, next) {
 		return fmt.Errorf("ink circuit did not become ready")
 	}
-	return ink.RequireReady(runtime.ink, active)
+	if err := ink.RequireReady(runtime.ink, active); err != nil {
+		return err
+	}
+	if !transition.Opened || runtime.inkControl.Active() != next || !runtime.inkControl.Ready() {
+		return fmt.Errorf("ink switch reported state is inconsistent")
+	}
+	return nil
 }
 
 func (runtime *Runtime) startDryerOperation(ctx context.Context, current model.Job) error {
